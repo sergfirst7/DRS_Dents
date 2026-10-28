@@ -4,13 +4,13 @@
 -- of DentRules.cs for a pilot's car) and tells the others the whole list of its dents in one online event. The receiver takes the slot from the
 -- sender of the event, never from the message: a client cannot dent anybody else's car. A wrong or a missing script on one client costs only the
 -- dents of that client's car.
-local VERSION = 'DRS Dents 1.1'
+local VERSION = 'DRS Dents 1.2'
 
 -- [SCRIPT_x] keys of the server's CSP extra options
 local cfgDefaults = {
   depth = 1,      -- how deep the dents go: 1 = as on DRS Street (a pilot's car), 0.5 = half, 2 = twice
   minKmh = 14,    -- a knock with another car slower than this (the difference of the speeds) leaves nothing; a wall needs 35
-  walls = 0,      -- 1 = the track dents too (a wall, but also the landing after a jump: AC calls both a knock of the track), 0 = only another car
+  floorCm = 10,   -- a knock this close to the bottom of the car (cm) is the floor on the track (a landing after a jump, a bump): no dent
 }
 local okCfg, cfgRead = pcall(ac.configValues, cfgDefaults)
 local cfg = okCfg and cfgRead or cfgDefaults
@@ -121,10 +121,16 @@ local function hit(payload)
   local n = {}
   for i = 3, 15 do n[#n + 1] = tonumber(f[i]); if not n[#n] then return end end
   local wall = f[2] == '-'
-  local okW, with = pcall(function() return ac.getCar(0).collidedWith end)   -- the knock is told in the frame it starts: this is the game's word on it
-  if okW and with == 0 then wall = true end                                 -- the track, whatever car was near the point (side by side on an oval)
-  if wall and cfg.walls ~= 1 then return end
   local kmh = n[1]
+  -- AC calls the floor touching the track a knock too. Who it was (collidedWith, the nearest car) is no help online: a real hit of a car came
+  -- as the track there (2026-10-28, no dents at all). Where it was is: a car or a wall meets the nose, the tail or a side, a landing the floor.
+  local me = ac.getCar(0)
+  local okB, bottom = pcall(function() return (me.aabbCenter.y - me.aabbSize.y / 2) * 100 end)
+  local floor = okB and type(bottom) == 'number' and n[9] < bottom + cfg.floorCm
+  local okW, with = pcall(function() return me.collidedWith end)
+  ac.log(string.format('[DRS Dents] knock %s %d km/h at x=%d y=%d z=%d cm, bottom %s, collidedWith %s: %s', wall and 'track' or ('car ' .. f[2]), kmh,
+    n[8], n[9], n[10], okB and string.format('%.0f', tonumber(bottom) or 0) or '?', okW and tostring(with) or '?', floor and 'the floor, no dent' or 'counts'))
+  if floor then return end
   if kmh < (wall and WALL_MIN_KMH or cfg.minKmh) then return end
   local d = makeDent(n[8], n[9], n[10], n[11], n[12], n[13], kmh, wall)
   if d and addDent(mine.dents, d) then dirty = true end

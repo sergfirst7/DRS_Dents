@@ -5,7 +5,8 @@ local fails = 0
 local function check(cond, what) if not cond then fails = fails + 1; print('FAIL: ' .. what) end end
 
 local function setup(cfgOverride)
-  local me = { sessionID = 2, isConnected = true, velocity = { x = 0, y = 0, z = 0 }, collisionDepth = 0, speedKmh = 0, isInPit = false, isInPitlane = false }
+  local me = { sessionID = 2, isConnected = true, velocity = { x = 0, y = 0, z = 0 }, collisionDepth = 0, speedKmh = 0, isInPit = false, isInPitlane = false,
+    aabbCenter = { x = 0, y = 0.5, z = 0 }, aabbSize = { x = 2, y = 1.2, z = 5 } }   -- the bottom of the car is 10 cm under its origin
   local other = { sessionID = 5, isConnected = true, velocity = { x = 0, y = 0, z = 0 } }
   local W = { sent = {}, cb = nil, me = me, sim = { carsCount = 2, currentSessionIndex = 0 } }
   local function vec3(x, y, z) return setmetatable({ x = x, y = y, z = z }, { __index = { distance = function(a, b) return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 + (a.z - b.z) ^ 2) end } }) end
@@ -15,7 +16,7 @@ local function setup(cfgOverride)
   _G.ac = {
     log = function() end,
     setSystemMessage = function(_, text) W.message = text end,
-    configValues = function(d) return cfgOverride or d end,
+    configValues = function(d) local r = {}; for k, v in pairs(d) do r[k] = v end; for k, v in pairs(cfgOverride or {}) do r[k] = v end; return r end,
     getSim = function() return W.sim end,
     getCar = function(i) return i == 0 and me or (i == 1 and other or nil) end,
     getCarID = function(i) return 'an_nextgen_chevy' end,
@@ -41,7 +42,7 @@ local function setup(cfgOverride)
   return W
 end
 
-local W = setup({ depth = 1, minKmh = 14, walls = 1 })   -- the wall checks below need the track dents on
+local W = setup()
 local function last() return W.sent[#W.sent] end
 local function mine() return DRS_Dents.cars()[2] end
 
@@ -118,26 +119,30 @@ script.update(0.5)
 check(last().n == 0 and last().epoch ~= before, 'a new session repairs the car')
 
 -- the depth knob
-W = setup({ depth = 0.5, minKmh = 14, walls = 1 })
+W = setup({ depth = 0.5 })
 script.update(0.4)
 DRS_Net.send('dent', 'HIT:-:60:0:0:0:0:0:0:10:50:200:0:0:-100')
 script.update(0.4)
 check(W.sent[#W.sent].depth[1 - 1] == 5, 'depth = 0.5 halves the dent: ' .. tostring(W.sent[#W.sent].depth[0]))
 
--- the default: only another car dents. A jump landing is a knock of the track for AC, at the full speed
+-- the floor: a landing after a jump touches the track with the bottom of the car (10 cm under its origin here) and leaves nothing
 W = setup()
 script.update(0.4)
-DRS_Net.send('dent', 'HIT:-:300:0:0:0:0:0:0:0:-20:100:0:100:0')
+DRS_Net.send('dent', 'HIT:-:300:0:0:0:0:0:0:0:-5:100:0:100:0')
 script.update(0.4)
-check(W.sent[#W.sent].n == 0, 'the track (a jump landing) leaves nothing by default')
+check(W.sent[#W.sent].n == 0, 'the floor on the track (a jump landing) leaves nothing')
+DRS_Net.send('dent', 'HIT:5:300:0:0:0:0:0:0:0:-5:100:0:100:0')
+script.update(0.4)
+check(W.sent[#W.sent].n == 0, 'the floor next to another car leaves nothing')
+-- a real hit online that the game calls the track (no dents at all in the race of 2026-10-28): the nose dents
 W.me.collidedWith = 0
-DRS_Net.send('dent', 'HIT:5:300:0:0:0:0:0:0:0:-20:100:0:100:0')
+DRS_Net.send('dent', 'HIT:-:200:0:0:0:0:0:0:0:30:240:0:0:-100')
 script.update(0.4)
-check(W.sent[#W.sent].n == 0, 'a landing next to another car leaves nothing when the game says it was the track')
-W.me.collidedWith = 1
-DRS_Net.send('dent', 'HIT:5:60:0:0:0:0:0:0:10:50:200:0:0:-100')
+check(W.sent[#W.sent].n == 1, 'a hit on the nose dents whatever the game says about who it was')
+W.me.aabbCenter = 3
+DRS_Net.send('dent', 'HIT:5:60:0:0:0:0:0:0:10:-5:-200:0:0:100')
 script.update(0.4)
-check(W.sent[#W.sent].n == 1, 'a knock the game calls a car still dents')
+check(W.sent[#W.sent].n == 2, 'a CSP without the box of the car has no floor rule')
 
 if fails > 0 then print(fails .. ' failed'); error('tests failed') end
 print('dents_test: all passed')
