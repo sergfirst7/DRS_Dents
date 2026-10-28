@@ -41,7 +41,7 @@ local function setup(cfgOverride)
   return W
 end
 
-local W = setup()
+local W = setup({ depth = 1, minKmh = 14, walls = 1 })   -- the wall checks below need the track dents on
 local function last() return W.sent[#W.sent] end
 local function mine() return DRS_Dents.cars()[2] end
 
@@ -118,11 +118,26 @@ script.update(0.5)
 check(last().n == 0 and last().epoch ~= before, 'a new session repairs the car')
 
 -- the depth knob
-W = setup({ depth = 0.5, minKmh = 14 })
+W = setup({ depth = 0.5, minKmh = 14, walls = 1 })
 script.update(0.4)
 DRS_Net.send('dent', 'HIT:-:60:0:0:0:0:0:0:10:50:200:0:0:-100')
 script.update(0.4)
 check(W.sent[#W.sent].depth[1 - 1] == 5, 'depth = 0.5 halves the dent: ' .. tostring(W.sent[#W.sent].depth[0]))
+
+-- the default: only another car dents. A jump landing is a knock of the track for AC, at the full speed
+W = setup()
+script.update(0.4)
+DRS_Net.send('dent', 'HIT:-:300:0:0:0:0:0:0:0:-20:100:0:100:0')
+script.update(0.4)
+check(W.sent[#W.sent].n == 0, 'the track (a jump landing) leaves nothing by default')
+W.me.collidedWith = 0
+DRS_Net.send('dent', 'HIT:5:300:0:0:0:0:0:0:0:-20:100:0:100:0')
+script.update(0.4)
+check(W.sent[#W.sent].n == 0, 'a landing next to another car leaves nothing when the game says it was the track')
+W.me.collidedWith = 1
+DRS_Net.send('dent', 'HIT:5:60:0:0:0:0:0:0:10:50:200:0:0:-100')
+script.update(0.4)
+check(W.sent[#W.sent].n == 1, 'a knock the game calls a car still dents')
 
 if fails > 0 then print(fails .. ' failed'); error('tests failed') end
 print('dents_test: all passed')
